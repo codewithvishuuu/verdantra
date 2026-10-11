@@ -1,0 +1,11 @@
+# Verdantra backend — pinned runtime (see SECURITY.md section 7).
+# Recorded from the builder machine; update all docs if versions change.
+fastapi==0.136.1
+uvicorn==0.46.0
+pydantic==2.13.4
+python-multipart==0.0.28
+pillow==12.2.0
+google-genai==2.23.0
+# Test-only (never required at runtime):
+pytest==9.1.1
+httpx==0.28.1

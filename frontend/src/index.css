@@ -1,0 +1,123 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Botanical Field Journal tokens (supplied Stitch spec), mirroring tailwind.config.js */
+:root {
+  --paper: #faf7ef;
+  --parchment: #f4efe2;
+  --card: #ffffff;
+  --ink: #202722;
+  --muted: #5b665e;
+  --moss: #1f5b46;
+  --moss-dark: #164635;
+  --fern: #e3ede5;
+  --clay: #f3e8d3;
+  --amber: #b87a28;
+  --ochre: #d5a34b;
+  --danger: #b3261e;
+  --line: #ded8c9;
+  --divider: #ece7da;
+  --stub: #d5a34b;
+}
+
+html {
+  background: var(--paper);
+}
+
+body {
+  color: var(--ink);
+  font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Paper grain: CSS-only, no image fetch (performance + offline safe) */
+.paper-grain {
+  background-image: radial-gradient(rgba(32, 39, 34, 0.055) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+/* Differentiation anchor: herbarium specimen ticket.
+   Perforated stub = dashed divider + oversized ledger numeral. */
+.ticket {
+  position: relative;
+}
+.ticket-stub {
+  border-right: 2px dashed var(--line);
+}
+.ticket-notch {
+  position: absolute;
+  right: -9px;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+}
+.ledger-numeral {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* Rubber-stamp badges: rotated 0.4deg keeps print feel without harming legibility */
+.stamp {
+  transform: rotate(-0.4deg);
+}
+
+/* One entrance sequence only (150ms, per DESIGN.md §8) */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.enter {
+  animation: rise-in 150ms ease-out both;
+}
+
+/* Viewfinder corner ticks on the upload card */
+.viewfinder {
+  position: relative;
+}
+.viewfinder::before,
+.viewfinder::after {
+  content: '';
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border-color: var(--moss);
+  border-style: solid;
+}
+.viewfinder::before {
+  top: 10px;
+  left: 10px;
+  border-width: 3px 0 0 3px;
+  border-top-left-radius: 8px;
+}
+.viewfinder::after {
+  bottom: 10px;
+  right: 10px;
+  border-width: 0 3px 3px 0;
+  border-bottom-right-radius: 8px;
+}
+
+/* Accessible focus: visible everywhere, never removed */
+:where(a, button, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--moss);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .enter {
+    animation: none;
+  }
+  * {
+    transition: none !important;
+  }
+}

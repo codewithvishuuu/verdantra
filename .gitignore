@@ -1,0 +1,28 @@
+# Verdantra root ignore rules (binding per SECURITY.md section 6).
+# Secrets and local-only artifacts must never enter source control.
+
+# --- Secrets (never commit, even redacted) ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# --- Local data (SQLite + uploads, git-ignored contents) ---
+data/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+
+# --- Frontend build output and dependencies ---
+frontend/dist/
+node_modules/
+
+# --- Logs and test caches ---
+*.log
+.pytest_cache/
