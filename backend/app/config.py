@@ -15,10 +15,34 @@ def _getenv(name: str, default: str = "") -> str:
     return os.environ.get(name, default)
 
 
+def _load_env_file() -> str | None:
+    """Load repo-local `.env` without overriding the real environment.
+
+    Search order: `./.env` (backend CWD), then the repository root `.env`
+    next to this file's grandparent. Returns the path loaded, else None.
+    `VERDANTRA_NO_DOTENV=1` skips loading (tests use this for hermeticity).
+    python-dotenv is optional: absence only disables file loading.
+    """
+    if os.environ.get("VERDANTRA_NO_DOTENV") == "1":
+        return None
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return None
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates = [os.path.join(os.getcwd(), ".env"),
+                  os.path.join(here, "..", "..", ".env")]
+    for path in candidates:
+        if os.path.isfile(path) and load_dotenv(path, override=False):
+            return path
+    return None
+
+
 class Settings:
     """Snapshot of process-env configuration. Construct per use (tests override env)."""
 
     def __init__(self) -> None:
+        _load_env_file()
         self.database_path = _getenv("DATABASE_PATH", "data/verdantra.db")
         self.upload_dir = _getenv("UPLOAD_DIR", "data/uploads")
         # Secret: presence is checkable, value is never printed/logged/returned.

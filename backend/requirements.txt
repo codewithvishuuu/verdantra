@@ -6,6 +6,7 @@ pydantic==2.13.4
 python-multipart==0.0.28
 pillow==12.2.0
 google-genai==2.23.0
+python-dotenv==1.2.2
 # Test-only (never required at runtime):
 pytest==9.1.1
 httpx==0.28.1

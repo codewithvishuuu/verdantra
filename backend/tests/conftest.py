@@ -60,6 +60,8 @@ def settings(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "t.db"))
     monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / "up"))
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    # Hermeticity: never load a real .env into the test process.
+    monkeypatch.setenv("VERDANTRA_NO_DOTENV", "1")
     return Settings()
 
 

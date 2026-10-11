@@ -39,6 +39,14 @@ def build_ai(settings: Settings) -> ai_service.AIService:
         ollama_num_thread=settings.ollama_num_thread)
 
 
+def startup_ai_warning(settings: Settings) -> str | None:
+    """Name-only missing-key notice for startup logs. Pure (testable); the
+    lifespan wrapper below is the only caller that prints."""
+    if settings.ai_provider == "gemini" and not settings.has_ai_credentials:
+        return "verdantra: GEMINI_API_KEY not set; AI will report unavailable"
+    return None
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
 
@@ -58,6 +66,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.settings = settings
         app.state.ai_service = build_ai(settings)
         app.state.started_at = time.monotonic()
+        notice = startup_ai_warning(settings)
+        if notice is not None:
+            print(notice, flush=True)
         yield
 
     app = FastAPI(title="Verdantra", version="0.2.0", lifespan=lifespan,

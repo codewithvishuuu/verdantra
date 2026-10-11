@@ -105,6 +105,7 @@ def test_health_reports_selected_provider(monkeypatch, tmp_path):
 
     for provider, expected_id in (("gemini", GEMINI_ID), ("ollama", OLLAMA_ID)):
         monkeypatch.setenv("AI_PROVIDER", provider)
+        monkeypatch.setenv("VERDANTRA_NO_DOTENV", "1")
         monkeypatch.setenv("DATABASE_PATH", str(tmp_path / ("%s.db" % provider)))
         monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / provider))
         with TestClient(create_app(Settings())) as client:
@@ -119,6 +120,7 @@ def test_explicit_failure_preserves_save_without_ai(monkeypatch, tmp_path):
     from fastapi.testclient import TestClient
 
     monkeypatch.setenv("AI_PROVIDER", "ollama")
+    monkeypatch.setenv("VERDANTRA_NO_DOTENV", "1")
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "t.db"))
     monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / "up"))
     app = create_app(Settings())

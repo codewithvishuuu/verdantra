@@ -4,6 +4,7 @@ from app.config import APP_VERSION, Settings
 
 
 def test_defaults_no_key(monkeypatch):
+    monkeypatch.setenv("VERDANTRA_NO_DOTENV", "1")
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("AI_MODEL_ID", raising=False)
     monkeypatch.delenv("AI_TIMEOUT_S", raising=False)
@@ -19,6 +20,7 @@ def test_defaults_no_key(monkeypatch):
 
 
 def test_env_overrides(monkeypatch):
+    monkeypatch.setenv("VERDANTRA_NO_DOTENV", "1")
     monkeypatch.setenv("GEMINI_API_KEY", "placeholder-not-a-real-key")
     monkeypatch.setenv("AI_TIMEOUT_S", "30")
     monkeypatch.setenv("CORS_ORIGINS", "https://a.example, https://b.example")
