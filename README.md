@@ -1,99 +1,167 @@
-# Verdantra 🌱 — AI-powered outdoor discovery & field science
+# Verdantra 🌱 — AI-powered botanical field journal
 
-> Photograph something outdoors → get a cautious AI reading + a safe mini-experiment → record what *you* observed in your field journal.
+> Photograph something outdoors → get a cautious AI reading with visible evidence, uncertainty notes, and one safe mini-experiment → record what *you* observed in your field journal.
 > **Predictions are unverified. Your observations are the record that counts.**
 
-**Status:** 📄 Documentation v0.2.0 (hosted time-box re-baseline for M1–M5; permanent adoption gated on Phase 5). No application code yet beyond the verified frontend build and the reported M0-A smoke script. This README is the front door; the build follows `IMPLEMENTATION_PLAN.md`.
+## The problem
 
-- Docs: [`PRD.md`](docs/PRD.md) · [`DESIGN.md`](docs/DESIGN.md) · [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) · [`AI_SYSTEM.md`](docs/AI_SYSTEM.md) · [`USER_FLOWS.md`](docs/USER_FLOWS.md) · [`API.md`](docs/API.md) · [`DATABASE.md`](docs/DATABASE.md) · [`SECURITY.md`](docs/SECURITY.md) · [`IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md)
-- Stack: React 18+ · TypeScript · Vite · Tailwind CSS · Python 3.11+ · FastAPI · SQLite · Gemma 4 26B via hosted Gemini API (time-boxed M1–M5; permanent adoption gated)
-- Deploy target: DigitalOcean CPU Droplet for the app tier (server GPU explicitly out of MVP — see §8)
+People notice interesting things outdoors — an unusual leaf, bark patterns, fungi after rain — but have no low-friction way to ask "what might this be?", try a tiny safe experiment, and keep a record, without being misled by overconfident AI.
 
-## 1. What Verdantra does (MVP)
+## What Verdantra does
 
-1. **Upload/take an outdoor photo** (JPEG/PNG/WebP, ≤ 10 MB) on the New-observation page.
-2. **Get an AI analysis** — visible features, a hedged explanation, explicit uncertainty, and exactly one safe household-materials experiment (10 min or less).
-3. **Write your own notes** (what you did / saw) and **save** photo + AI output + notes as a journal entry.
-4. **Revisit/delete** entries in your field journal. AI panels always read `AI PREDICTION — UNVERIFIED`; your words always read `YOUR OBSERVATION — CONFIRMED BY YOU`.
+- **Photo-based observation** — upload or take a JPEG/PNG/WebP photo (≤ 10 MB); client and server both validate type, size, and decodability.
+- **Visible evidence, not verdicts** — the AI lists short photo-grounded traits, a plain-language description, and explicit uncertainty. Species names are never stated as certain.
+- **Safe experiments only** — one short, in-place observation activity per analysis (3–5 minutes, household items), with safety notes. No picking, tasting, touching, or damaging unidentified plants.
+- **Uncertainty as a feature** — every AI panel carries an `AI PREDICTION — UNVERIFIED` badge, model ID, and timestamp, visually distinct from your `YOUR OBSERVATION — CONFIRMED BY YOU` notes.
+- **Personal field journal** — save photo + frozen AI snapshot + your notes; list newest-first, revisit entries, delete anytime (deletion removes rows *and* image files).
 
-What it does **not** do: identify species for certain, advise eating/touching/treating anything, track location, sync across accounts, or work offline. Full scope + deferrals: `PRD.md` §§4/8.
+## AI modes: online Gemini, offline Ollama — you choose explicitly
 
-## 2. Visual identity
+| Mode | Setting | What happens | Needs |
+|---|---|---|---|
+| **Online (default)** | `AI_PROVIDER=gemini` | Hosted `gemma-4-26b-a4b-it` via the Gemini API | `GEMINI_API_KEY`, internet |
+| **Offline** | `AI_PROVIDER=ollama` | Local `gemma4:e2b` via Ollama at `http://localhost:11434` | Ollama running + pulled model, no key |
 
-The provided **Verdantra logo** is the visual identity and must not be redesigned without permission. At documentation time no logo file was present in the repo (empty working directory on inspection) — the build creates `assets/logo/` as a verbatim drop-in slot with a wordmark fallback (see `DESIGN.md` §2). Do not generate an AI replacement logo.
+There is **no automatic switching**: each mode calls only its own backend, unknown values fail fast at startup, and switching modes requires restarting the backend. The journal UI shows which model produced each result and adjusts its privacy footer to the active provider.
 
-## 3. Quickstart (after Milestone 1 scaffolds exist)
+> ⚠️ **Privacy warning (automatic and online modes): photos you analyze are sent to Google's Gemini API.** On the API Free tier, Google may use submitted content to improve its products, including human review. Analyze only your own non-sensitive, consented photos, and strip location EXIF before uploading (the server strips EXIF GPS automatically, but do not rely on that alone). In `ollama` mode, images never leave your machine.
 
-```bash
-# prerequisites (verify versions, record in build PR):
-python --version   # >= 3.11 (3.11 carries google-genai for the smoke path)
-node --version     # >= 20
-# No local model runtime needed: inference is hosted (gemma-4-26b-a4b-it via Gemini API)
+## Technology stack
 
-# backend (from backend/)
-cp ../.env.example .env 2>/dev/null || cp .env.example .env
-# edit .env: GEMINI_API_KEY=<your key, env-only, never committed>, CORS_ORIGINS=http://localhost:5173
-# offline mode instead: AI_PROVIDER=ollama  (needs local Ollama + gemma4:e2b; no key, no Google traffic)
-# stop with Ctrl+C, then restart with the other AI_PROVIDER to switch modes
-pip install -r requirements.txt
-python -m sqlite3 ../data/verdantra.db < app/db/schema.sql
-uvicorn app.main:app --reload --workers 1
-curl -s localhost:8000/healthz   # expect {"status":"ok|degraded","db":"ok","ai":"ok|unavailable",...}
+Verified from this repository (`backend/requirements.txt`, `frontend/package.json`):
 
-# frontend (from frontend/)
-npm install && npm run dev       # http://localhost:5173 (proxies /api → :8000)
+- **Frontend** — React 18, TypeScript 5, Vite 5, Tailwind CSS 3 (hash-routed SPA: `/`, `/journal`, `/journal/:id`)
+- **Backend** — Python 3.11+, FastAPI, Uvicorn (single worker), Pydantic v2, Pillow, `google-genai` SDK
+- **Data** — SQLite (stdlib `sqlite3`, WAL mode, single file) + filesystem image store; no ORM, no external database
+- **AI runtimes** — Google Gemini API (`gemma-4-26b-a4b-it`) and/or local Ollama (`gemma4:e2b`); all provider calls live behind one `AIService` interface
+- **Tests** — pytest (mocked providers, no live calls in CI), `tsc --noEmit`, `vite build`
+
+## Architecture and documents
+
+Two-tier app: browser SPA → FastAPI (`/api/v1/*`, `/healthz`, `/media/*`) → SQLite file. Full design record lives in [`docs/`](docs/):
+
+- [`docs/PRD.md`](docs/PRD.md) — goals, scope, acceptance criteria
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — system structure, config, deployment
+- [`docs/DESIGN.md`](docs/DESIGN.md) — botanical field-journal visual system
+- [`docs/AI_SYSTEM.md`](docs/AI_SYSTEM.md) — model choice, prompts, safety policy
+- [`docs/API.md`](docs/API.md) — exact request/response and error contracts
+- [`docs/USER_FLOWS.md`](docs/USER_FLOWS.md) — end-to-end user journeys
+- [`docs/DATABASE.md`](docs/DATABASE.md) — schema, transactions, backups
+- [`docs/SECURITY.md`](docs/SECURITY.md) — secrets, validation, privacy controls
+- [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) — milestone build order
+
+## Prerequisites
+
+- **Python 3.11+** with `pip` (backend was built and tested with Python 3.11.9)
+- **Node.js 20+** with `npm` (frontend was built with Node 24)
+- **Git** (to clone)
+- **Ollama** (only for offline mode) with ~5 GB free disk for the model
+- A Google AI Studio API key (only for online mode; free tier works for trials)
+
+## Local setup (Windows PowerShell)
+
+```powershell
+git clone https://github.com/codewithvishuuu/verdantra.git
+cd verdantra
 ```
 
-If the hosted smoke check (`smoke/gemma_api_smoke.py`) or the five-run latency log in `AI_SYSTEM.md` §8 fails, **stop** — the MVP is blocked until the log records a passing backend. Do not substitute another model family without updating all docs.
+### Backend
 
-## 4. Project structure (to be created in Milestone 1)
-
+```powershell
+cd backend
+py -3.11 -m pip install -r requirements.txt
+Copy-Item ..\.env.example ..\.env -ErrorAction SilentlyContinue  # skip if you already have one
+# Open the root .env in a text editor and set GEMINI_API_KEY to your own key (online mode).
+# Never commit .env, paste keys into chat, or put keys in frontend code.
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 ```
-verdantra/
-  *.md  .gitignore  .env.example  assets/logo/
-  frontend/  (vite + react + tailwind; src/pages, src/components, src/lib/api.ts)
-  backend/   (fastapi; app/main.py, routes/, services/ai_service.py + images.py, db/schema.sql)
-  data/      (git-ignored at runtime: verdantra.db + uploads/)
+
+The API listens on `http://localhost:8000`; `GET /healthz` reports app, database, and AI status honestly (`ok` / `degraded` / `unavailable` — never faked). If you use the `py` launcher with another default Python, substitute the interpreter that has the dependencies installed (e.g. `C:\...\Python311\python.exe -m uvicorn …`).
+
+### Frontend
+
+```powershell
+cd frontend
+npm install
+npm run dev        # http://localhost:5173 (proxies /api to :8000)
 ```
 
-Source of truth per area: API → `API.md`, DB → `DATABASE.md`, AI → `AI_SYSTEM.md`, design → `DESIGN.md`, flows → `USER_FLOWS.md`, plan → `IMPLEMENTATION_PLAN.md`.
+No frontend restart is needed when switching AI modes — only the backend restarts.
 
-## 5. API & data in 30 seconds
+## Selecting online, offline, or default mode
 
-- `GET /healthz` — app + DB + AI reachability (honest `ai: ok|unavailable`).
-- `POST /api/v1/observations/analyze` (multipart `image` + optional `notes_hint`) → validated `AIAnalysis` JSON or a standard error (`ai_unavailable`/`ai_timeout`/`ai_bad_response`).
-- `POST /api/v1/journal-entries` → save photo + frozen AI snapshot + your notes (201); `GET` list/detail; `DELETE` removes rows + image files.
-- Errors always look like `{"error":{"code":"…","message":"…","details":{…}},"request_id":"…"}`. Full contracts: `API.md`; DDL + transactions: `DATABASE.md`.
+The backend reads `AI_PROVIDER` from its process environment (`gemini` default). Stop the server with <kbd>Ctrl</kbd>+<kbd>C</kbd>, set the mode, restart:
 
-## 6. AI position in one paragraph
+```powershell
+# Online (default): hosted Gemini, needs GEMINI_API_KEY
+$env:AI_PROVIDER = "gemini"
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 
-MVP uses **`gemma-4-26b-a4b-it` via the hosted Gemini API (time-boxed M1–M5)** — instruction-tuned Gemma 4 MoE (3.8B active params), text+image→text, 256K context, called with `google-genai` 2.23.0 `generate_content` behind the `AIService` interface. Offline alternative (opt-in): `AI_PROVIDER=ollama` runs local `gemma4:e2b` with no cloud traffic — live image verification still pending, so offline vision is not claimed working yet. The prior E2B/Ollama local path is retained as a documented alternative, not the active path. Permanent hosted adoption is gated on Phase 5 verification. Choose the provider explicitly at startup (`AI_PROVIDER=gemini` or `AI_PROVIDER=ollama`); restart to switch. Prompts, uncertainty rules, and refusal policy: `AI_SYSTEM.md` §§4–6.
+# Offline: local Ollama, needs no key and makes no Google calls
+$env:AI_PROVIDER = "ollama"
+$env:OLLAMA_HOST = "http://localhost:11434"
+$env:OLLAMA_MODEL = "gemma4:e2b"
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+```
 
-## 7. Privacy & safety (read before deploying)
+Any other `AI_PROVIDER` value fails fast at startup instead of guessing.
 
-- **Photos you analyze leave this host** as EXIF-stripped copies sent to Google's Gemini API; temp images from un-saved analyses are swept within an hour.
-- ⚠️ **Free-tier limitation:** on the current Free tier, Google may use submitted content to improve its products, including human review. Analyze only your own non-sensitive, consented photos. No paid-tier privacy applies unless a tier change is independently confirmed. **$0-spend posture: billing is not enabled; no spend cap exists.**
-- **No accounts, no analytics, no location columns** by design. Don't type personal data into the optional hint (placeholder warns as much).
-- **Safety:** be safe outdoors; never eat, touch, or approach anything because the AI suggested it. The model gives no foraging/medical/survival advice and no definitive IDs — refusals return safe completions (`AI_SYSTEM.md` §6). Delete anytime in-app; data runbook: `DATABASE.md` §5.
-- **Secrets:** zero in git (`.env` ignored, `.env.example` placeholders only; pre-push greps in `SECURITY.md` §2). Full controls: `SECURITY.md`.
+### Offline model installation (only model supported by the code)
 
-## 8. Deployment & costs (honest version)
+```powershell
+ollama pull gemma4:e2b
+ollama show gemma4:e2b     # confirm the vision/multimodal lines
+ollama list                # confirm the model is present locally
+```
 
-- **MVP deploys the app tier only** to a DigitalOcean Basic CPU Droplet (proposed 2 vCPU / 4 GB, Ubuntu 24.04; Uvicorn `--workers 1` behind Caddy/Nginx + TLS). Model inference runs on Google infrastructure via the Gemini API (time-boxed M1–M5).
-- **Server-side GPU is out of MVP**, and AI spend stays at **$0** (billing not enabled; exact 26B per-request price unverified — third-party aggregators suggest ~$0.04–0.13 input / $0.20–0.40 output per 1M, unverified). Any future spend cap is unresolved and needs explicit approval.
-- No uptime/latency SLA is claimed until Milestone 0 measures real numbers on real hardware.
+Offline image-analysis quality on this hardware is unmeasured — verify with a real photo before trusting it, and do not claim production behavior.
 
-## 9. Contributing (docs phase rules)
+## Testing
 
-1. Read `PRD.md` §8 deferral freeze — no auth/maps/social/offline/GPU PRs during MVP.
-2. Keep the 10 docs consistent: changing stack, routes, schema, prompts, or scope means updating every affected doc in the same PR.
-3. Distinguish predictions from observations in every UI string; label doc examples `EXAMPLE — not a real result`.
-4. Never commit secrets, DB files, uploads, or generated logos. Follow the acceptance checklists in `IMPLEMENTATION_PLAN.md` §5 and `SECURITY.md` §9.
+```powershell
+cd backend
+python -m pytest tests/ -q     # mocked providers only; makes no live API calls
+```
 
-## 10. License & model terms (maintainer to confirm)
+```powershell
+cd frontend
+npx tsc --noEmit
+npm run build
+```
 
-- Proposed app-code license: **MIT** (maintainer confirms; add `LICENSE` at build start).
-- Gemma 4 weights: **Apache 2.0** under Google's Gemma terms — review the model card + Hugging Face repo terms before distributing weights or derivatives.
-- No deployment, accuracy, or availability claims are made in these docs beyond what is explicitly marked verified.
+For latency measurement, `backend/bench/bench_providers.py` runs a repeatable same-image benchmark per provider (run it yourself with a live backend; it is not part of CI and makes real calls when executed).
 
-*Start here for the build: `IMPLEMENTATION_PLAN.md` §2 (first task: confirm the reported hosted smoke + five-run latency log).*
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `503 ai_unavailable` in Gemini mode | `GEMINI_API_KEY` missing from backend process env (the app does not auto-load it in every setup — export it or use `.env` loading) | Set `$env:GEMINI_API_KEY` (your own key, never shared), restart backend |
+| Startup log `GEMINI_API_KEY not set` | Same as above | Same fix; the message names only the variable, never the value |
+| `503 api_auth_error` | Key present but rejected (revoked, wrong project) | Regenerate the key in Google AI Studio |
+| `503 api_quota_exhausted` / `429` | Quota/rate limit spent | Wait, check AI Studio usage/billing; do not retry in a loop |
+| `503 ai_unavailable` in Ollama mode | Ollama not running or model missing | Start Ollama, `ollama pull gemma4:e2b`, `ollama list` to confirm |
+| `503 ai_busy` | Another analysis already running (single inference slot) | Wait a moment and retry; your draft is preserved |
+| `504 ai_timeout` | Model slower than the provisional timeout | Retry; see `docs/AI_SYSTEM.md` §7 (timeouts are provisional) |
+| `400/413/422` image errors | Wrong type, over 10 MB, or undecodable/tiny image | Use a JPEG/PNG/WebP ≤ 10 MB, ≥ 64×64 px |
+| `EADDRINUSE` on start | Port taken | Backend: `--port 8001`; frontend: `npm run dev -- --port 5174` |
+| Analysis succeeds but looks wrong | Model uncertainty, not a bug report by itself | Check the uncertainty panel; never treat predictions as facts |
+
+## Screenshots
+
+> No UI screenshots are checked into the repository yet. To add them: capture **New Observation** (empty + with AI report), **Journal list** (with entries), and **Entry detail** at **1280px** desktop and **360px** mobile widths; save PNGs under `docs/screenshots/` (e.g. `new-observation-1280.png`); reference them from this section. Do not use real private photos or journal entries containing personal data.
+
+## Privacy, limitations, and field safety
+
+- **Data handling:** uploads are validated, EXIF GPS is stripped, images are re-encoded, temp files from unsaved analyses are swept within an hour, and deletion removes rows *and* files. See [`docs/SECURITY.md`](docs/SECURITY.md) and [`docs/DATABASE.md`](docs/DATABASE.md).
+- **Free-tier reality:** online analysis transmits sanitized image bytes to Google under the terms quoted above. Offline mode keeps everything on your machine.
+- **Cost posture:** no billing is enabled by this project; any spend cap is your own AI Studio setting. Per-request pricing is unverified here — check current official pricing before heavy use.
+- **Honest limits:** single-user demo, no login, no sync; one analysis at a time; timeouts and latency figures are provisional (a single ~47 s sample was reported during manual testing, not a guarantee); model output may be wrong — the journal's uncertainty panels and badges exist for exactly this reason; no uptime, accuracy, or security certifications are claimed.
+- **Field safety:** stay on paths, observe wildlife from a distance, never pick, taste, touch, or damage unknown plants, and get an adult's help when unsure. This app gives observations, not identifications or advice.
+
+## Contributing
+
+Issues and pull requests are welcome. Please: keep changes small and scoped; run the backend suite plus `tsc` and `vite build` before proposing; never commit secrets (`.env`), photos, SQLite data, `node_modules/`, or build output; keep the nine documents under [`docs/`](docs/) separate and update the one that owns your change; do not redesign the logo or the visual system without discussion.
+
+## License
+
+**No license file exists in this repository yet.** That means the project is *not* currently open for reuse under any terms — do not assume one. The maintainer still needs to choose and add a license (MIT is a common choice for projects like this); until then, all rights are reserved by default.
