@@ -26,3 +26,5 @@ node_modules/
 # --- Logs and test caches ---
 *.log
 .pytest_cache/
+
+smoke/
