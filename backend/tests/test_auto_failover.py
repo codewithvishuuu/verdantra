@@ -1,8 +1,12 @@
-"""Automatic failover: mocked transports only. No network, no keys, no billing.
+"""Explicit provider isolation: mocked transports only. No network, no keys, no billing.
 
-Live fallback with a real local model is NOT verified here — the owner runs
-the manual commands in the task report (pull, serve, real photo).
+`AI_PROVIDER=auto` was removed: `build_service` rejects it, and these tests
+prove each explicit mode stays inside its own backend. Live behavior with a
+real local model is NOT verified here.
 """
+
+import builtins
+import json
 
 import pytest
 
@@ -39,76 +43,89 @@ class FakeBackend:
                "down": ai_service.AIError("gone")}[self.behavior]
 
 
-def auto(gemini_behavior="ok", ollama_behavior="ok"):
-    return ai_service.AutoAdapter(FakeBackend(GEMINI_ID, gemini_behavior),
-                                  FakeBackend(OLLAMA_ID, ollama_behavior))
+def test_gemini_mode_never_touches_localhost(monkeypatch):
+    def forbidden_urlopen(*args, **kwargs):
+        raise AssertionError("gemini mode must not open any URL")
+
+    def boom(_b, _m, _p):
+        raise ai_service.AIAuthError("bad key")
+
+    monkeypatch.setattr("urllib.request.urlopen", forbidden_urlopen)
+    adapter = ai_service.build_service("m", "k", 120, provider="gemini")
+    assert isinstance(adapter, ai_service.GeminiAdapter)
+    # Caller seam fails like a rejected key; any localhost dial would trip above.
+    failing = ai_service.GeminiAdapter(model_id="m", api_key="k", caller=boom)
+    with pytest.raises(ai_service.AIAuthError):
+        failing.analyze(b"img", "image/jpeg", None)
 
 
-def test_gemini_success_never_touches_ollama():
-    gemini, ollama = FakeBackend(GEMINI_ID), FakeBackend(OLLAMA_ID)
-    adapter = ai_service.AutoAdapter(gemini, ollama)
-    assert adapter.model_id == GEMINI_ID  # primary id before any call
+def test_ollama_mode_never_touches_google(monkeypatch):
+    real_import = builtins.__import__
+
+    def guarded(name, *args, **kwargs):
+        assert not str(name).startswith("google"), "ollama mode must not import google SDKs"
+        return real_import(name, *args, **kwargs)
+
+    class FakeResp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return json.dumps({"message": {"content": json.dumps(VALID_ANALYSIS)}}).encode()
+
+    monkeypatch.setattr("urllib.request.urlopen", lambda req: FakeResp())
+    monkeypatch.setattr("builtins.__import__", guarded)
+    adapter = ai_service.build_service("m", "k", 120, provider="ollama",
+                                       ollama_host="http://localhost:11434",
+                                       ollama_model=OLLAMA_ID)
+    assert isinstance(adapter, ai_service.OllamaAdapter)
     out = adapter.analyze(b"img", "image/jpeg", None)
-    assert out["model_id"] == GEMINI_ID and ollama.calls == 0
-    assert adapter.model_id == GEMINI_ID
+    assert out["model_id"] == OLLAMA_ID
 
 
-def test_transport_failures_fall_back_once():
-    for behavior in ("boom", "timeout", "quota"):
-        gemini, ollama = FakeBackend(GEMINI_ID, behavior), FakeBackend(OLLAMA_ID)
-        out = ai_service.AutoAdapter(gemini, ollama).analyze(b"img", "image/jpeg", None)
-        assert out["model_id"] == OLLAMA_ID
-        assert gemini.calls == 1 and ollama.calls == 1  # exactly one local attempt
-
-
-def test_auth_and_bad_output_never_masked():
-    for behavior in ("auth", "bad"):
-        gemini, ollama = FakeBackend(GEMINI_ID, behavior), FakeBackend(OLLAMA_ID)
-        with pytest.raises(ai_service.AIError):
-            ai_service.AutoAdapter(gemini, ollama).analyze(b"img", "image/jpeg", None)
-        assert ollama.calls == 0
-
-
-def test_both_down_is_safe_error_with_model_tracking():
-    adapter = auto("boom", "down")
-    with pytest.raises(ai_service.AIError) as e:
-        adapter.analyze(b"img", "image/jpeg", None)
-    assert (e.value.code, e.value.status) == ("ai_unavailable", 503)
-
-
-def test_ping_prefers_configured_but_accepts_either():
-    gemini, ollama = FakeBackend(GEMINI_ID), FakeBackend(OLLAMA_ID, "down")
-    assert ai_service.AutoAdapter(gemini, ollama).ping() is True
-    assert ollama.pings == 0  # no local traffic when hosted answers
-    assert auto("down", "ok").ping() is True
-    assert auto("down", "down").ping() is False
-
-
-def test_explicit_modes_never_switch():
-    assert isinstance(ai_service.build_service("m", "k", 1, provider="gemini"),
+def test_invalid_provider_fails_fast():
+    # "auto" is rejected exactly like any other unknown value; empty/None
+    # keeps the historical default-to-gemini behavior and is covered by config.
+    for bad in ("auto", "auto-pilot", "gemini-cloud"):
+        with pytest.raises(ValueError):
+            ai_service.build_service("m", "k", 120, provider=bad)
+    assert isinstance(ai_service.build_service("m", "k", 120, provider="GEMINI"),
                       ai_service.GeminiAdapter)
-    assert isinstance(ai_service.build_service("m", "k", 1, provider="ollama"),
+    assert isinstance(ai_service.build_service("m", "k", 120, provider=" Ollama "),
                       ai_service.OllamaAdapter)
-    with pytest.raises(ValueError):
-        ai_service.build_service("m", "k", 1, provider="auto-pilot")
 
 
-def test_route_reports_provider_and_preserves_save_without_ai(monkeypatch, tmp_path):
+def test_health_reports_selected_provider(monkeypatch, tmp_path):
     from app.main import create_app
     from app.config import Settings
     from fastapi.testclient import TestClient
 
-    monkeypatch.setenv("AI_PROVIDER", "auto")
+    for provider, expected_id in (("gemini", GEMINI_ID), ("ollama", OLLAMA_ID)):
+        monkeypatch.setenv("AI_PROVIDER", provider)
+        monkeypatch.setenv("DATABASE_PATH", str(tmp_path / ("%s.db" % provider)))
+        monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / provider))
+        with TestClient(create_app(Settings())) as client:
+            body = client.get("/healthz").json()
+            assert body["provider"] == provider
+            assert body["model_id"] == expected_id
+
+
+def test_explicit_failure_preserves_save_without_ai(monkeypatch, tmp_path):
+    from app.main import create_app
+    from app.config import Settings
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("AI_PROVIDER", "ollama")
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "t.db"))
     monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / "up"))
     app = create_app(Settings())
     with TestClient(app) as client:
-        assert app.state.ai_service.model_id == GEMINI_ID  # primary until first call
-        assert client.get("/healthz").json()["provider"] == "auto"
-        # Hermetic double failure (no live backends involved): honest 503,
+        # Hermetic outage (no live backends involved): honest 503,
         # then save-without-AI still works.
-        app.state.ai_service = ai_service.AutoAdapter(FakeBackend(GEMINI_ID, "boom"),
-                                                      FakeBackend(OLLAMA_ID, "down"))
+        app.state.ai_service = FakeBackend(OLLAMA_ID, "down")
         res = client.post("/api/v1/observations/analyze",
                           files={"image": ("leaf.jpg", make_image("JPEG"), "image/jpeg")})
         assert res.status_code == 503

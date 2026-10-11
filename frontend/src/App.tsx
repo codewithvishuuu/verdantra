@@ -88,14 +88,6 @@ export default function App() {
               not sent to Google by this feature. Predictions are unverified · Be safe
               outdoors · No foraging or medical advice. Journal lives on this demo server.
             </p>
-          ) : provider === 'auto' ? (
-            <p>
-              Automatic mode: tries Google's Gemini API first (Free tier: content sent
-              to Google may be used to improve its products, incl. human review), and
-              uses on-device Ollama only if hosted analysis fails. Predictions are
-              unverified · Be safe outdoors · No foraging or medical advice. Journal
-              lives on this demo server.
-            </p>
           ) : (
             <p>
               Photos you analyze are sent to Google's Gemini API (Free tier: content may be

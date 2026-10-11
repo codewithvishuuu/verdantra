@@ -5,7 +5,7 @@
 
 **Status:** 📄 Documentation v0.2.0 (hosted time-box re-baseline for M1–M5; permanent adoption gated on Phase 5). No application code yet beyond the verified frontend build and the reported M0-A smoke script. This README is the front door; the build follows `IMPLEMENTATION_PLAN.md`.
 
-- Docs: [`PRD.md`](PRD.md) · [`DESIGN.md`](DESIGN.md) · [`ARCHITECTURE.md`](ARCHITECTURE.md) · [`AI_SYSTEM.md`](AI_SYSTEM.md) · [`USER_FLOWS.md`](USER_FLOWS.md) · [`API.md`](API.md) · [`DATABASE.md`](DATABASE.md) · [`SECURITY.md`](SECURITY.md) · [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md)
+- Docs: [`PRD.md`](docs/PRD.md) · [`DESIGN.md`](docs/DESIGN.md) · [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) · [`AI_SYSTEM.md`](docs/AI_SYSTEM.md) · [`USER_FLOWS.md`](docs/USER_FLOWS.md) · [`API.md`](docs/API.md) · [`DATABASE.md`](docs/DATABASE.md) · [`SECURITY.md`](docs/SECURITY.md) · [`IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md)
 - Stack: React 18+ · TypeScript · Vite · Tailwind CSS · Python 3.11+ · FastAPI · SQLite · Gemma 4 26B via hosted Gemini API (time-boxed M1–M5; permanent adoption gated)
 - Deploy target: DigitalOcean CPU Droplet for the app tier (server GPU explicitly out of MVP — see §8)
 
@@ -34,7 +34,7 @@ node --version     # >= 20
 cp ../.env.example .env 2>/dev/null || cp .env.example .env
 # edit .env: GEMINI_API_KEY=<your key, env-only, never committed>, CORS_ORIGINS=http://localhost:5173
 # offline mode instead: AI_PROVIDER=ollama  (needs local Ollama + gemma4:e2b; no key, no Google traffic)
-# automatic failover: AI_PROVIDER=auto  (tries hosted first, one local attempt on transport failure; verify live first)
+# stop with Ctrl+C, then restart with the other AI_PROVIDER to switch modes
 pip install -r requirements.txt
 python -m sqlite3 ../data/verdantra.db < app/db/schema.sql
 uvicorn app.main:app --reload --workers 1
@@ -67,7 +67,7 @@ Source of truth per area: API → `API.md`, DB → `DATABASE.md`, AI → `AI_SYS
 
 ## 6. AI position in one paragraph
 
-MVP uses **`gemma-4-26b-a4b-it` via the hosted Gemini API (time-boxed M1–M5)** — instruction-tuned Gemma 4 MoE (3.8B active params), text+image→text, 256K context, called with `google-genai` 2.23.0 `generate_content` behind the `AIService` interface. Offline alternative (opt-in): `AI_PROVIDER=ollama` runs local `gemma4:e2b` with no cloud traffic — live image verification still pending, so offline vision is not claimed working yet. The prior E2B/Ollama local path is retained as a documented alternative, not the active path. Permanent hosted adoption is gated on Phase 5 verification. `AI_PROVIDER=auto` tries hosted first with one local fallback on transport failure (live fallback unverified). Prompts, uncertainty rules, and refusal policy: `AI_SYSTEM.md` §§4–6.
+MVP uses **`gemma-4-26b-a4b-it` via the hosted Gemini API (time-boxed M1–M5)** — instruction-tuned Gemma 4 MoE (3.8B active params), text+image→text, 256K context, called with `google-genai` 2.23.0 `generate_content` behind the `AIService` interface. Offline alternative (opt-in): `AI_PROVIDER=ollama` runs local `gemma4:e2b` with no cloud traffic — live image verification still pending, so offline vision is not claimed working yet. The prior E2B/Ollama local path is retained as a documented alternative, not the active path. Permanent hosted adoption is gated on Phase 5 verification. Choose the provider explicitly at startup (`AI_PROVIDER=gemini` or `AI_PROVIDER=ollama`); restart to switch. Prompts, uncertainty rules, and refusal policy: `AI_SYSTEM.md` §§4–6.
 
 ## 7. Privacy & safety (read before deploying)
 

@@ -47,7 +47,7 @@ def test_perf_defaults(monkeypatch):
     for var in ("TRANSMIT_MAX_EDGE", "TRANSMIT_JPEG_QUALITY", "GEMINI_MAX_OUTPUT_TOKENS",
                 "OLLAMA_NUM_CTX", "OLLAMA_NUM_PREDICT", "OLLAMA_KEEP_ALIVE",
                 "AI_PROVIDER", "OLLAMA_HOST", "OLLAMA_MODEL",
-                "AUTO_PRIMARY_TIMEOUT_S", "OLLAMA_NUM_THREAD"):
+                "OLLAMA_NUM_THREAD"):
         monkeypatch.delenv(var, raising=False)
     s = Settings()
     assert (s.transmit_max_edge, s.transmit_jpeg_quality) == (2048, 82)
@@ -55,7 +55,6 @@ def test_perf_defaults(monkeypatch):
     assert (s.ollama_num_ctx, s.ollama_num_predict, s.ollama_keep_alive) == (4096, 1024, "5m")
     assert (s.ai_provider, s.ollama_host, s.ollama_model) == (
         "gemini", "http://localhost:11434", "gemma4:e2b")
-    assert s.auto_primary_timeout_s == 60
     assert s.ollama_num_thread == 0
 
 
@@ -152,36 +151,13 @@ def test_bench_summarize_splits_cold_warm_and_failures():
     assert s["warm"]["total_ms"]["p50"] == 1050.0
 
 
-def test_auto_primary_bound_falls_back_fast():
-    import time as _time
-
-    from tests.test_auto_failover import FakeBackend
-
-    class SlowGemini(FakeBackend):
-        def analyze(self, image_bytes, mime, hint):
-            _time.sleep(0.5)  # longer than the zero bound, far shorter than any default
-            return super().analyze(image_bytes, mime, hint)
-
-    ollama = FakeBackend("gemma4:e2b")
-    adapter = ai_service.AutoAdapter(SlowGemini("gemma-4-26b-a4b-it"), ollama,
-                                     primary_timeout_s=0)
-    started = _time.perf_counter()
-    out = adapter.analyze(b"img", "image/jpeg", None)
-    elapsed = _time.perf_counter() - started
-    assert out["model_id"] == "gemma4:e2b" and ollama.calls == 1
-    assert elapsed < 5, "primary bound must preempt the slow hosted call"
-
-
-def test_build_wires_auto_bound_and_thread_lever():
-    adapter = ai_service.build_service("m", "k", 120, provider="auto",
-                                       auto_primary_timeout_s=7,
+def test_build_wires_thread_lever():
+    adapter = ai_service.build_service("m", "k", 120, provider="ollama",
                                        ollama_num_thread=4)
-    assert isinstance(adapter, ai_service.AutoAdapter)
-    assert adapter._primary_timeout_s == 7
-    assert adapter._fallback._options.get("num_thread") == 4
-    defaulted = ai_service.build_service("m", "k", 120, provider="auto")
-    assert defaulted._primary_timeout_s == 60
-    assert "num_thread" not in defaulted._fallback._options  # server default kept
+    assert isinstance(adapter, ai_service.OllamaAdapter)
+    assert adapter._options.get("num_thread") == 4
+    defaulted = ai_service.build_service("m", "k", 120, provider="ollama")
+    assert "num_thread" not in defaulted._options  # server default kept
 
 
 def test_busy_slot_rejects_second_analysis(app_client):

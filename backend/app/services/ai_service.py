@@ -337,8 +337,7 @@ def build_service(model_id: str, api_key: str, timeout_s: int,
                   ollama_num_ctx: int = 4096,
                   ollama_num_predict: int = 1024,
                   ollama_keep_alive: str = "5m",
-                  ollama_num_thread: int = 0,
-                  auto_primary_timeout_s: int = 60) -> AIService:
+                  ollama_num_thread: int = 0) -> AIService:
     """Construct exactly one backend. Unknown providers fail fast — never guess."""
     name = (provider or "gemini").strip().lower()
     if name == "gemini":
@@ -350,72 +349,8 @@ def build_service(model_id: str, api_key: str, timeout_s: int,
                              num_predict=ollama_num_predict,
                              keep_alive=ollama_keep_alive,
                              num_thread=ollama_num_thread)
-    if name == "auto":
-        return AutoAdapter(
-            GeminiAdapter(model_id=model_id, api_key=api_key, timeout_s=timeout_s,
-                          max_output_tokens=max_output_tokens),
-            OllamaAdapter(model_id=ollama_model, host=ollama_host,
-                          timeout_s=timeout_s, num_ctx=ollama_num_ctx,
-                          num_predict=ollama_num_predict,
-                          keep_alive=ollama_keep_alive,
-                          num_thread=ollama_num_thread),
-            primary_timeout_s=auto_primary_timeout_s)
-    raise ValueError("unknown AI_PROVIDER %r (expected 'gemini', 'ollama', or 'auto')"
+    raise ValueError("unknown AI_PROVIDER %r (expected 'gemini' or 'ollama')"
                      % provider)
-
-
-class AutoAdapter:
-    """Try hosted Gemini first, fall back to local Ollama once on recognized
-    transport-level failures. Explicit gemini/ollama modes never switch —
-    only this adapter reroutes, and only on network/timeout/quota/service
-    errors (never on auth, bad-output, validation, or programming errors).
-    The returned analysis always carries the producing model's id, and
-    `model_id` tracks the last success (primary id until the first call).
-    Worst case costs both timeouts back-to-back; measure before promising.
-    """
-
-    def __init__(self, primary: GeminiAdapter, fallback: OllamaAdapter,
-                 primary_timeout_s: int | None = None) -> None:
-        self._primary = primary
-        self._fallback = fallback
-        # Bound for the hosted attempt in auto mode (default: primary's own
-        # timeout). Nested executor is deliberate: the primary keeps its own
-        # timeout semantics in explicit mode; auto mode caps it separately.
-        self._primary_timeout_s = (primary_timeout_s if primary_timeout_s is not None
-                                   else primary._timeout_s)
-        self._last_model_id = primary.model_id
-
-    @property
-    def model_id(self) -> str:
-        return self._last_model_id
-
-    def ping(self) -> bool:
-        try:
-            primary_ok = bool(self._primary.ping())
-        except Exception:
-            primary_ok = False
-        if primary_ok:
-            return True
-        try:
-            return bool(self._fallback.ping())
-        except Exception:
-            return False
-
-    def analyze(self, image_bytes: bytes, mime: str, hint: str | None) -> dict:
-        try:
-            out = _run_with_timeout(
-                lambda: self._primary.analyze(image_bytes, mime, hint),
-                self._primary_timeout_s)
-        except concurrent.futures.TimeoutError as exc:
-            # Outer bound hit: same meaning as a provider timeout → fallback.
-            raise AITimeout("auto primary attempt exceeded %ss"
-                            % self._primary_timeout_s) from exc
-        except (AIAuthError, AIBadResponse):
-            raise  # config/output faults: surface, never mask with a second model
-        except AIError:
-            out = self._fallback.analyze(image_bytes, mime, hint)  # single attempt
-        self._last_model_id = out.get("model_id", self._fallback.model_id)
-        return out
 
 
 def utcnow() -> str:

@@ -39,10 +39,6 @@ class Settings:
         self.ollama_num_ctx = int(_getenv("OLLAMA_NUM_CTX", "4096"))
         self.ollama_num_predict = int(_getenv("OLLAMA_NUM_PREDICT", "1024"))
         self.ollama_keep_alive = _getenv("OLLAMA_KEEP_ALIVE", "5m")
-        # Auto-mode primary bound (provisional): hosted should answer fast or
-        # fail fast; the patient budget belongs to the local fallback. Without
-        # this, one request could wait AI_TIMEOUT_S twice (see AI_SYSTEM.md).
-        self.auto_primary_timeout_s = int(_getenv("AUTO_PRIMARY_TIMEOUT_S", "60"))
         # CPU lever, Ollama-only: 0 = server default (all cores, fastest but
         # loudest); set 2-4 to trade speed for thermals. Never sent to Gemini.
         self.ollama_num_thread = int(_getenv("OLLAMA_NUM_THREAD", "0"))

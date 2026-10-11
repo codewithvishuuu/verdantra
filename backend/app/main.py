@@ -36,8 +36,7 @@ def build_ai(settings: Settings) -> ai_service.AIService:
         ollama_num_ctx=settings.ollama_num_ctx,
         ollama_num_predict=settings.ollama_num_predict,
         ollama_keep_alive=settings.ollama_keep_alive,
-        ollama_num_thread=settings.ollama_num_thread,
-        auto_primary_timeout_s=settings.auto_primary_timeout_s)
+        ollama_num_thread=settings.ollama_num_thread)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
